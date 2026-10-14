@@ -38,7 +38,10 @@ jobs:
           {
             "appId": "com.anithing8.doctoolkit",
             "appName": "Doc Toolkit",
-            "webDir": "www"
+            "webDir": "www",
+            "android": {
+              "adjustMarginsForEdgeToEdge": "disable"
+            }
           }
           EOF
           npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/assets sharp
@@ -98,19 +101,20 @@ jobs:
           node generate-icon.js
           npx @capacitor/assets generate --android --iconBackgroundColor '#116b5f' --iconBackgroundColorDark '#116b5f' --splashBackgroundColor '#0d1713' --splashBackgroundColorDark '#0d1713'
 
-      - name: Apply Safe-Area Insets to WebView Container
+      - name: Force Hardware Status Bar and Gesture Bar Margins
         run: |
+          npx cap sync android
           cat << 'EOF' > android/app/src/main/java/com/anithing8/doctoolkit/MainActivity.java
           package com.anithing8.doctoolkit;
 
           import android.graphics.Color;
           import android.os.Bundle;
           import android.view.View;
+          import android.view.ViewGroup;
           import android.webkit.WebSettings;
-          import androidx.core.graphics.Insets;
+          import android.webkit.WebView;
           import androidx.core.view.ViewCompat;
           import androidx.core.view.WindowCompat;
-          import androidx.core.view.WindowInsetsCompat;
           import androidx.core.view.WindowInsetsControllerCompat;
           import com.getcapacitor.BridgeActivity;
 
@@ -119,7 +123,6 @@ jobs:
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
 
-                  WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
                   getWindow().setStatusBarColor(Color.parseColor("#0d1713"));
                   getWindow().setNavigationBarColor(Color.parseColor("#0d1713"));
 
@@ -130,26 +133,63 @@ jobs:
                       controller.setAppearanceLightNavigationBars(false);
                   }
 
+                  float density = getResources().getDisplayMetrics().density;
+
+                  int statusBarHeight = 0;
+                  int statusResId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+                  if (statusResId > 0) {
+                      statusBarHeight = getResources().getDimensionPixelSize(statusResId);
+                  }
+                  int minTopPx = (int) (40 * density);
+                  if (statusBarHeight < minTopPx) {
+                      statusBarHeight = minTopPx;
+                  }
+
+                  int navBarHeight = (int) (24 * density);
+
+                  final int finalTop = statusBarHeight;
+                  final int finalBottom = navBarHeight;
+
                   View content = findViewById(android.R.id.content);
                   if (content != null) {
                       content.setBackgroundColor(Color.parseColor("#0d1713"));
-                      ViewCompat.setOnApplyWindowInsetsListener(content, (v, windowInsets) -> {
-                          Insets insets = windowInsets.getInsets(
-                              WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
-                          );
-                          v.setPadding(insets.left, insets.top, insets.right, insets.bottom);
-                          return WindowInsetsCompat.CONSUMED;
-                      });
                   }
 
                   if (getBridge() != null && getBridge().getWebView() != null) {
-                      WebSettings settings = getBridge().getWebView().getSettings();
+                      WebView webView = getBridge().getWebView();
+                      WebSettings settings = webView.getSettings();
                       settings.setTextZoom(100);
+
+                      View parent = (View) webView.getParent();
+                      if (parent != null) {
+                          parent.setBackgroundColor(Color.parseColor("#0d1713"));
+                      }
+
+                      ViewCompat.setOnApplyWindowInsetsListener(webView, null);
+
+                      ViewGroup.LayoutParams lp = webView.getLayoutParams();
+                      if (lp instanceof ViewGroup.MarginLayoutParams) {
+                          ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                          mlp.topMargin = finalTop;
+                          mlp.bottomMargin = finalBottom;
+                          webView.setLayoutParams(mlp);
+                      }
+
+                      webView.post(() -> {
+                          ViewCompat.setOnApplyWindowInsetsListener(webView, null);
+                          ViewGroup.LayoutParams postLp = webView.getLayoutParams();
+                          if (postLp instanceof ViewGroup.MarginLayoutParams) {
+                              ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) postLp;
+                              mlp.topMargin = finalTop;
+                              mlp.bottomMargin = finalBottom;
+                              webView.setLayoutParams(mlp);
+                              webView.requestLayout();
+                          }
+                      });
                   }
               }
           }
           EOF
-          npx cap sync android
 
       - name: Build Debug APK
         run: |
