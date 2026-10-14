@@ -38,17 +38,10 @@ jobs:
           {
             "appId": "com.anithing8.doctoolkit",
             "appName": "Doc Toolkit",
-            "webDir": "www",
-            "plugins": {
-              "StatusBar": {
-                "overlaysWebView": false,
-                "backgroundColor": "#0d1713",
-                "style": "DARK"
-              }
-            }
+            "webDir": "www"
           }
           EOF
-          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/status-bar@7 @capacitor/assets sharp
+          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/assets sharp
           npx cap add android
 
       - name: Generate App Logo and Splash Screen from Website
@@ -105,42 +98,50 @@ jobs:
           node generate-icon.js
           npx @capacitor/assets generate --android --iconBackgroundColor '#116b5f' --iconBackgroundColorDark '#116b5f' --splashBackgroundColor '#0d1713' --splashBackgroundColorDark '#0d1713'
 
-      - name: Fix Status Bar Overlap and WebView Scaling
+      - name: Apply Safe-Area Insets to WebView Container
         run: |
-          cat << 'EOF' > android/app/src/main/res/values/styles.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources xmlns:tools="http://schemas.android.com/tools">
-              <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
-                  <item name="colorPrimary">#0d1713</item>
-                  <item name="colorPrimaryDark">#0d1713</item>
-                  <item name="colorAccent">#f5c518</item>
-                  <item name="android:statusBarColor">#0d1713</item>
-                  <item name="android:navigationBarColor">#0d1713</item>
-                  <item name="android:windowLightStatusBar">false</item>
-                  <item name="android:fitsSystemWindows">true</item>
-                  <item name="android:windowOptOutEdgeToEdgeEnforcement" tools:targetApi="35">true</item>
-              </style>
-              <style name="AppTheme.NoActionBar" parent="AppTheme">
-                  <item name="windowActionBar">false</item>
-                  <item name="windowNoTitle">true</item>
-              </style>
-              <style name="AppTheme.NoActionBarLaunch" parent="AppTheme.NoActionBar">
-                  <item name="android:background">@drawable/splash</item>
-              </style>
-          </resources>
-          EOF
-
           cat << 'EOF' > android/app/src/main/java/com/anithing8/doctoolkit/MainActivity.java
           package com.anithing8.doctoolkit;
 
+          import android.graphics.Color;
           import android.os.Bundle;
+          import android.view.View;
           import android.webkit.WebSettings;
+          import androidx.core.graphics.Insets;
+          import androidx.core.view.ViewCompat;
+          import androidx.core.view.WindowCompat;
+          import androidx.core.view.WindowInsetsCompat;
+          import androidx.core.view.WindowInsetsControllerCompat;
           import com.getcapacitor.BridgeActivity;
 
           public class MainActivity extends BridgeActivity {
               @Override
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+
+                  WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+                  getWindow().setStatusBarColor(Color.parseColor("#0d1713"));
+                  getWindow().setNavigationBarColor(Color.parseColor("#0d1713"));
+
+                  WindowInsetsControllerCompat controller =
+                      WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+                  if (controller != null) {
+                      controller.setAppearanceLightStatusBars(false);
+                      controller.setAppearanceLightNavigationBars(false);
+                  }
+
+                  View content = findViewById(android.R.id.content);
+                  if (content != null) {
+                      content.setBackgroundColor(Color.parseColor("#0d1713"));
+                      ViewCompat.setOnApplyWindowInsetsListener(content, (v, windowInsets) -> {
+                          Insets insets = windowInsets.getInsets(
+                              WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()
+                          );
+                          v.setPadding(insets.left, insets.top, insets.right, insets.bottom);
+                          return WindowInsetsCompat.CONSUMED;
+                      });
+                  }
+
                   if (getBridge() != null && getBridge().getWebView() != null) {
                       WebSettings settings = getBridge().getWebView().getSettings();
                       settings.setTextZoom(100);
