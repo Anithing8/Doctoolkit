@@ -30,13 +30,124 @@ jobs:
       - name: Wrap static site into Capacitor Android project
         run: |
           mkdir -p www
-          rsync -a --exclude='www' --exclude='.git' --exclude='.github' --exclude='node_modules' --exclude='android' . www/
+          rsync -a --exclude='www' --exclude='.git' --exclude='.github' --exclude='node_modules' --exclude='android' --exclude='assets' . www/
           if [ -f www/index.html ]; then sed -i 's|/Doctoolkit/|./|g' www/index.html; fi
           rm -f www/package.json www/package-lock.json
           echo '{"name":"doctoolkit-app","version":"1.0.0","private":true}' > package.json
-          echo '{"appId":"com.anithing8.doctoolkit","appName":"DocToolkit","webDir":"www"}' > capacitor.config.json
-          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
+          cat << 'EOF' > capacitor.config.json
+          {
+            "appId": "com.anithing8.doctoolkit",
+            "appName": "Doc Toolkit",
+            "webDir": "www",
+            "plugins": {
+              "StatusBar": {
+                "overlaysWebView": false,
+                "backgroundColor": "#0d1713",
+                "style": "DARK"
+              }
+            }
+          }
+          EOF
+          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/status-bar@7 @capacitor/assets sharp
           npx cap add android
+
+      - name: Generate App Logo and Splash Screen from Website
+        run: |
+          mkdir -p assets
+          cat << 'EOF' > generate-icon.js
+          const fs = require('fs');
+          const sharp = require('sharp');
+
+          async function run() {
+            let inputBuffer = null;
+            const candidates = ['icon.png', 'logo.png', 'favicon.png', 'icon.svg', 'logo.svg', 'favicon.svg'];
+            for (const file of candidates) {
+              if (fs.existsSync(file)) {
+                inputBuffer = fs.readFileSync(file);
+                break;
+              }
+            }
+
+            if (!inputBuffer && fs.existsSync('www/index.html')) {
+              const html = fs.readFileSync('www/index.html', 'utf8');
+              const dataUriMatch = html.match(/rel=["'](?:shortcut )?icon["'][^>]*href=["']data:image\/svg\+xml[^,"']*,(.*?)["']/i);
+              if (dataUriMatch && dataUriMatch[1]) {
+                inputBuffer = Buffer.from(decodeURIComponent(dataUriMatch[1]));
+              } else {
+                const svgMatch = html.match(/<svg[\s\S]*?<\/svg>/i);
+                if (svgMatch && !svgMatch[0].includes('currentColor')) {
+                  inputBuffer = Buffer.from(svgMatch[0]);
+                }
+              }
+            }
+
+            const fallbackSvg = Buffer.from(`
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="1024" height="1024">
+                <rect width="512" height="512" rx="110" fill="#116b5f"/>
+                <rect x="96" y="136" width="220" height="44" rx="22" fill="#f5c518"/>
+                <rect x="96" y="234" width="320" height="44" rx="22" fill="#ffffff"/>
+                <rect x="96" y="332" width="240" height="44" rx="22" fill="#ffffff"/>
+              </svg>
+            `);
+
+            try {
+              await sharp(inputBuffer || fallbackSvg).resize(1024, 1024, { fit: 'contain', background: '#116b5f' }).png().toFile('assets/icon-only.png');
+            } catch (e) {
+              await sharp(fallbackSvg).resize(1024, 1024).png().toFile('assets/icon-only.png');
+            }
+
+            await sharp({
+              create: { width: 2732, height: 2732, channels: 4, background: '#0d1713' }
+            }).png().toFile('assets/splash.png');
+          }
+          run();
+          EOF
+          node generate-icon.js
+          npx @capacitor/assets generate --android --iconBackgroundColor '#116b5f' --iconBackgroundColorDark '#116b5f' --splashBackgroundColor '#0d1713' --splashBackgroundColorDark '#0d1713'
+
+      - name: Fix Status Bar Overlap and WebView Scaling
+        run: |
+          cat << 'EOF' > android/app/src/main/res/values/styles.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources xmlns:tools="http://schemas.android.com/tools">
+              <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+                  <item name="colorPrimary">#0d1713</item>
+                  <item name="colorPrimaryDark">#0d1713</item>
+                  <item name="colorAccent">#f5c518</item>
+                  <item name="android:statusBarColor">#0d1713</item>
+                  <item name="android:navigationBarColor">#0d1713</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:fitsSystemWindows">true</item>
+                  <item name="android:windowOptOutEdgeToEdgeEnforcement" tools:targetApi="35">true</item>
+              </style>
+              <style name="AppTheme.NoActionBar" parent="AppTheme">
+                  <item name="windowActionBar">false</item>
+                  <item name="windowNoTitle">true</item>
+              </style>
+              <style name="AppTheme.NoActionBarLaunch" parent="AppTheme.NoActionBar">
+                  <item name="android:background">@drawable/splash</item>
+              </style>
+          </resources>
+          EOF
+
+          cat << 'EOF' > android/app/src/main/java/com/anithing8/doctoolkit/MainActivity.java
+          package com.anithing8.doctoolkit;
+
+          import android.os.Bundle;
+          import android.webkit.WebSettings;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  if (getBridge() != null && getBridge().getWebView() != null) {
+                      WebSettings settings = getBridge().getWebView().getSettings();
+                      settings.setTextZoom(100);
+                  }
+              }
+          }
+          EOF
           npx cap sync android
 
       - name: Build Debug APK
