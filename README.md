@@ -18,3 +18,8 @@ Since it's built with standard frontend web technologies, there's no complicated
 1. Clone the repo:
    ```bash
    git clone [https://github.com/anithing8/Doctoolkit.git](https://github.com/anithing8/Doctoolkit.git)
+
+## 📄 License & Copyright
+
+Copyright © 2026 Abhinav. All rights reserved. 
+This project is open for viewing, but unauthorized commercial hosting, redistribution, or claiming it as your own is strictly prohibited.
